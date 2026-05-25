@@ -1,0 +1,35 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  title-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title prefix
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title || "";
+            const allowed = [
+              "fix",
+              "feat",
+              "docs",
+              "test",
+              "tests",
+              "refactor",
+              "perf",
+              "style",
+              "build",
+              "ci",
+              "chore",
+              "revert",
+            ];
+            const prefix = title.split(":")[0].trim();
+            if (!allowed.includes(prefix)) {
+              core.setFailed(
+                `Invalid PR title prefix: "${prefix}". Use one of: ${allowed.join(", ")}. Example: "fix: ..."`
+              );
+            }

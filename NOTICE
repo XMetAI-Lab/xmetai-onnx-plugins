@@ -1,0 +1,14 @@
+XMetAI ONNX Plugins
+Copyright 2025 XMetAI/douzesheng
+
+This product includes software developed by XMetAI contributors.
+
+This product includes code derived from or adapted with reference to the Mamba
+project:
+
+  Mamba
+  Copyright 2023 Tri Dao, Albert Gu
+  https://github.com/state-spaces/mamba
+
+The Mamba project is licensed under the Apache License, Version 2.0.
+Relevant source files retain their original copyright notices where applicable.
