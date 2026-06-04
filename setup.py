@@ -151,6 +151,7 @@ CUDA_SOURCES = [
     "csrc/selective_scan/selective_scan_fwd_fp32.cu",
     "csrc/selective_scan/selective_scan_fwd_fp16.cu",
     # "csrc/selective_scan/selective_scan_fwd_bf16.cu",
+    "csrc/mamba3_siso/mamba3_siso_fwd.cu",
 ]
 
 ext = Extension(
@@ -159,9 +160,11 @@ ext = Extension(
         "csrc/register_op.cpp",
         "csrc/softmax_cpu/softmax_cpu_ort.cpp",
         "csrc/selective_scan/selective_scan_fn_ort.cpp",
+        "csrc/mamba3_siso/mamba3_siso_fn_ort.cpp",
     ],
     include_dirs=[
         str(Path(this_dir) / "csrc" / "selective_scan"),
+        str(Path(this_dir) / "csrc" / "mamba3_siso"),
         str(Path(this_dir) / "csrc" / "softmax_cpu"),
         str(Path(this_dir) / "csrc" / "utils"),
         str(ORT_INCLUDE_DIR),

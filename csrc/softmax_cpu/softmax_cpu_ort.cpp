@@ -117,6 +117,11 @@ SoftmaxCpuOp g_softmax_cpu_op;
 
 }  // namespace
 
+OrtStatus *AddSoftmaxCpuOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base) {
+	const OrtApi *api = api_base->GetApi(ORT_API_VERSION);
+	return api->CustomOpDomain_Add(domain, &g_softmax_cpu_op);
+}
+
 OrtStatus *RegisterSoftmaxCpuOps(OrtSessionOptions *options, const OrtApiBase *api_base) {
 	const OrtApi *api = api_base->GetApi(ORT_API_VERSION);
 	OrtCustomOpDomain *domain = nullptr;
@@ -124,7 +129,7 @@ OrtStatus *RegisterSoftmaxCpuOps(OrtSessionOptions *options, const OrtApiBase *a
 	if (status != nullptr) {
 		return status;
 	}
-	status = api->CustomOpDomain_Add(domain, &g_softmax_cpu_op);
+	status = AddSoftmaxCpuOp(domain, api_base);
 	if (status != nullptr) {
 		return status;
 	}

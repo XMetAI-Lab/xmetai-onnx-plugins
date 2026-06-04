@@ -249,14 +249,19 @@ SelectiveScanOp g_selective_scan_op;
 
 }  // namespace
 
+OrtStatus *AddSelectiveScanFnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base) {
+	const OrtApi *api = api_base->GetApi(ORT_API_VERSION);
+	return api->CustomOpDomain_Add(domain, &g_selective_scan_op);
+}
+
 OrtStatus *RegisterSelectiveScanFnOps(OrtSessionOptions *options, const OrtApiBase *api_base) {
 	const OrtApi *api = api_base->GetApi(ORT_API_VERSION);
 	OrtCustomOpDomain *domain = nullptr;
-	OrtStatus *status = api->CreateCustomOpDomain("ai.onnx.contrib", &domain);
+	OrtStatus *status = api->CreateCustomOpDomain("xmetai_plugins", &domain);
 	if (status != nullptr) {
 		return status;
 	}
-	status = api->CustomOpDomain_Add(domain, &g_selective_scan_op);
+	status = AddSelectiveScanFnOp(domain, api_base);
 	if (status != nullptr) {
 		return status;
 	}

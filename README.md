@@ -8,6 +8,9 @@ The package currently builds the native extension module
 
 - `SelectiveScanFn`: CUDA implementation of Mamba-style selective scan for
   ONNX Runtime.
+- `Mamba3SisoFn`: CUDA implementation of the Mamba-3 SISO forward path for
+  ONNX Runtime. This v1 path supports forward inference only and does not
+  support recurrent input/final states or packed variable-length `cu_seqlens`.
 - `SoftmaxCPU`: CPU-side softmax custom operator support.
 
 ## Naming
@@ -21,14 +24,14 @@ extension module keeps the import/build name `xmetai_onnx_plugins`.
 ## Build Requirements
 
 - Python with `setuptools` and `packaging`
-- CUDA 11.6 or newer
+- CUDA 12.0 or newer
 - ONNX Runtime GPU development package with headers and libraries
 - A supported NVIDIA GPU architecture for the configured `nvcc` flags
 
 The current build script defaults to the ONNX Runtime package under:
 
 ```text
-/workspace/github/onnxruntime-linux-x64-gpu-1.23.2/
+/workspace/github/onnxruntime-linux-x64-gpu-1.xx.x/
 ```
 
 Set `ORT_PACKAGE_DIR`, `ORT_INCLUDE_DIR`, or `ORT_LIB_DIR` if your local ONNX
@@ -48,18 +51,6 @@ For packaging or installation:
 ```bash
 pip install .
 ```
-
-## GitHub Actions
-
-The repository includes a `Build Plugin` workflow that runs on the same
-self-hosted GPU runner style used by `xmetai-core`:
-
-```yaml
-runs-on: [self-hosted, gpu]
-```
-
-The workflow builds a wheel with `python -m build --wheel`, smoke-imports the
-native extension, and uploads the wheel as a GitHub Actions artifact.
 
 ## License
 

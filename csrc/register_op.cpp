@@ -3,8 +3,9 @@
 
 #include <onnxruntime_cxx_api.h>
 
-OrtStatus *RegisterSelectiveScanFnOps(OrtSessionOptions *options, const OrtApiBase *api_base);
-OrtStatus *RegisterSoftmaxCpuOps(OrtSessionOptions *options, const OrtApiBase *api_base);
+OrtStatus *AddSelectiveScanFnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
+OrtStatus *AddMamba3SisoFnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
+OrtStatus *AddSoftmaxCpuOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
 
 extern "C" OrtStatus *ORT_API_CALL RegisterCustomOps(OrtSessionOptions *options, const OrtApiBase *api_base) {
 	if (!api_base) {
@@ -14,9 +15,22 @@ extern "C" OrtStatus *ORT_API_CALL RegisterCustomOps(OrtSessionOptions *options,
 	if (!options) {
 		return api->CreateStatus(ORT_INVALID_ARGUMENT, "RegisterCustomOps received null session options");
 	}
-	OrtStatus *status = RegisterSelectiveScanFnOps(options, api_base);
+	OrtCustomOpDomain *xmetai_domain = nullptr;
+	OrtStatus *status = api->CreateCustomOpDomain("xmetai_plugins", &xmetai_domain);
 	if (status != nullptr) {
 		return status;
 	}
-	return RegisterSoftmaxCpuOps(options, api_base);
+	status = AddSelectiveScanFnOp(xmetai_domain, api_base);
+	if (status != nullptr) {
+		return status;
+	}
+	status = AddMamba3SisoFnOp(xmetai_domain, api_base);
+	if (status != nullptr) {
+		return status;
+	}
+	status = AddSoftmaxCpuOp(xmetai_domain, api_base);
+	if (status != nullptr) {
+		return status;
+	}
+	return api->AddCustomOpDomain(options, xmetai_domain);
 }
