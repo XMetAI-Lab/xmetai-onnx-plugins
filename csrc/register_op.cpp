@@ -5,6 +5,7 @@
 
 OrtStatus *AddSelectiveScanFnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
 OrtStatus *AddMamba3SisoFnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
+OrtStatus *AddGatedDeltaNet2FnOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
 OrtStatus *AddSoftmaxCpuOp(OrtCustomOpDomain *domain, const OrtApiBase *api_base);
 
 extern "C" OrtStatus *ORT_API_CALL RegisterCustomOps(OrtSessionOptions *options, const OrtApiBase *api_base) {
@@ -25,6 +26,10 @@ extern "C" OrtStatus *ORT_API_CALL RegisterCustomOps(OrtSessionOptions *options,
 		return status;
 	}
 	status = AddMamba3SisoFnOp(xmetai_domain, api_base);
+	if (status != nullptr) {
+		return status;
+	}
+	status = AddGatedDeltaNet2FnOp(xmetai_domain, api_base);
 	if (status != nullptr) {
 		return status;
 	}

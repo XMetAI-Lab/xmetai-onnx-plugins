@@ -11,6 +11,11 @@ The package currently builds the native extension module
 - `Mamba3SisoFn`: CUDA implementation of the Mamba-3 SISO forward path for
   ONNX Runtime. This v1 path supports forward inference only and does not
   support recurrent input/final states or packed variable-length `cu_seqlens`.
+- `GatedDeltaNet2Fn`: CUDA implementation of the Gated DeltaNet-2 recurrent
+  forward path used by `fla.ops.gdn2.chunk_gdn2` during ONNX Runtime
+  inference. This v1 path supports dense `(batch, seqlen, head, dim)` tensors
+  and optional initial state, but does not return final states or support
+  packed variable-length `cu_seqlens`.
 - `SoftmaxCPU`: CPU-side softmax custom operator support.
 
 ## Naming
@@ -65,3 +70,9 @@ reference to the Mamba project by Tri Dao and Albert Gu:
 
 The attribution is recorded in [`NOTICE`](NOTICE). Source files derived from
 Mamba retain the original copyright notice where applicable.
+
+Parts of the Gated DeltaNet-2 implementation are adapted with reference to the
+Flash Linear Attention project:
+
+- Repository: https://github.com/fla-org/flash-linear-attention
+- License: MIT

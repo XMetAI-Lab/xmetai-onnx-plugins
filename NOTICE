@@ -12,3 +12,12 @@ project:
 
 The Mamba project is licensed under the Apache License, Version 2.0.
 Relevant source files retain their original copyright notices where applicable.
+
+This product includes code adapted with reference to the Flash Linear Attention
+project:
+
+  Flash Linear Attention
+  Copyright 2023-2026 Songlin Yang, Yu Zhang, Zhiyuan Li
+  https://github.com/fla-org/flash-linear-attention
+
+The Flash Linear Attention project is licensed under the MIT License.
