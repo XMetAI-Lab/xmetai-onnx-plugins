@@ -10,43 +10,50 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-wheel:
+  build-extension:
     runs-on: [self-hosted, gpu]
+    strategy:
+      fail-fast: false
+      matrix:
+        build_target:
+          - name: ort-1.27.0-cuda13
+            ort_package_dir: /workspace/github/onnxruntime-linux-x64-gpu_cuda13-1.27.0
+            cuda_home: /usr/local/cuda-13.1
+            cuda_include: /usr/local/cuda-13.1/targets/x86_64-linux/include
+            cuda_lib: /usr/local/cuda-13.1/targets/x86_64-linux/lib
+          - name: ort-1.26.0-cuda12
+            ort_package_dir: /workspace/github/onnxruntime-linux-x64-gpu-1.26.0
+            cuda_home: /home/douzsh/anaconda/envs/h100
+            cuda_include: /home/douzsh/anaconda/envs/h100/targets/x86_64-linux/include
+            cuda_lib: /home/douzsh/anaconda/envs/h100/targets/x86_64-linux/lib
     env:
-      ORT_PACKAGE_DIR: /workspace/github/onnxruntime-linux-x64-gpu-1.23.2
+      ORT_PACKAGE_DIR: ${{ matrix.build_target.ort_package_dir }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Show build environment
+      - name: Build extension
         run: |
-          python --version
-          python -m pip --version
-          nvcc -V
           test -d "$ORT_PACKAGE_DIR/include"
           test -d "$ORT_PACKAGE_DIR/lib"
+          export CUDA_HOME="${{ matrix.build_target.cuda_home }}"
+          export PATH="$CUDA_HOME/bin:$PATH"
+          export CPATH="${{ matrix.build_target.cuda_include }}:${CPATH:-}"
+          export CPLUS_INCLUDE_PATH="${{ matrix.build_target.cuda_include }}:${CPLUS_INCLUDE_PATH:-}"
+          export LIBRARY_PATH="${{ matrix.build_target.cuda_lib }}:${LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="${{ matrix.build_target.cuda_lib }}:${LD_LIBRARY_PATH:-}"
+          test -x "$CUDA_HOME/bin/nvcc"
+          test -f "${{ matrix.build_target.cuda_include }}/cuda_runtime_api.h"
+          nvcc -V
+          python setup.py clean --all
+          rm -f xmetai_onnx_plugins*.so
+          python setup.py build_ext --inplace
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install build packaging ninja
-
-      - name: Build wheel
-        run: |
-          python -m build --wheel
-
-      - name: Smoke import extension
-        env:
-          LD_LIBRARY_PATH: "/workspace/github/onnxruntime-linux-x64-gpu-1.23.2/lib:${{ env.LD_LIBRARY_PATH }}"
-        run: |
-          python -m pip install dist/*.whl
-          python -c "import xmetai_onnx_plugins; print(xmetai_onnx_plugins.__name__)"
-
-      - name: Upload wheel artifact
+      - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xmetai-onnx-plugins-wheel
-          path: dist/*.whl
+          name: xmetai-onnx-plugins-so-${{ matrix.build_target.name }}
+          path: xmetai_onnx_plugins*.so
           if-no-files-found: error

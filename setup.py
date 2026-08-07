@@ -66,9 +66,6 @@ cmdclass: dict[str, type] = {}
 ext_modules = []
 
 
-cc_flag = []
-
-
 def find_cuda_home():
     paths = [
         os.environ.get("CUDA_HOME"),
@@ -96,36 +93,15 @@ else:
     if bare_metal_version < Version("11.6"):
         raise RuntimeError(f"{PACKAGE_NAME} is only supported on CUDA 11.6 and above.  " "Note: make sure nvcc has a supported version by running nvcc -V.")
 
-# if bare_metal_version <= Version("12.9"):
-#    cc_flag.append("-gencode")
-#    cc_flag.append("arch=compute_53,code=sm_53")
-#    cc_flag.append("-gencode")
-#    cc_flag.append("arch=compute_62,code=sm_62")
-#    cc_flag.append("-gencode")
-#    cc_flag.append("arch=compute_70,code=sm_70")
-#    cc_flag.append("-gencode")
-#    cc_flag.append("arch=compute_72,code=sm_72")
-cc_flag.append("-gencode")
-cc_flag.append("arch=compute_75,code=sm_75")
-cc_flag.append("-gencode")
-cc_flag.append("arch=compute_80,code=sm_80")
-cc_flag.append("-gencode")
-cc_flag.append("arch=compute_87,code=sm_87")
-if bare_metal_version >= Version("11.8"):
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_90,code=sm_90")
+cuda_arches = ["80", "86", "89", "90"]
+if bare_metal_version < Version("13.0"):
+    cuda_arches.insert(0, "70")
 if bare_metal_version >= Version("12.8"):
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_100,code=sm_100")
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_120,code=sm_120")
-if bare_metal_version >= Version("13.0"):
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_103,code=sm_103")
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_110,code=sm_110")
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_121,code=sm_121")
+    cuda_arches.append("120")
+
+cc_flag = []
+for arch in cuda_arches:
+    cc_flag.extend(["-gencode", f"arch=compute_{arch},code=sm_{arch}"])
 
 extra_compile_args = {
     "cxx": ["-O3", "-std=c++17"],
