@@ -87,6 +87,6 @@ jobs:
             - **ORT 1.27.0 / CUDA 13.1** — built for `sm_80`, `sm_86`, `sm_89`, `sm_90`, and `sm_120`.
             - **ORT 1.26.0 / CUDA 12.6** — built for `sm_70`, `sm_80`, `sm_86`, `sm_89`, and `sm_90`.
 
-            Select the artifact matching the installed ONNX Runtime, CUDA runtime, and Python ABI. The supported GPU families include V100, A800, H100, GeForce RTX 3080/3090, RTX 4080/4090, and RTX 5080/5090.
+            Select the artifact matching the installed ONNX Runtime and CUDA runtime. The supported GPU families include V100, A800, H100, GeForce RTX 3080/3090, RTX 4080/4090, and RTX 5080/5090.
           files: release-assets/**/*.so
           fail_on_unmatched_files: true

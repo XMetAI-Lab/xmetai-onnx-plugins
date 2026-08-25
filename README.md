@@ -41,7 +41,9 @@ The current build script defaults to the ONNX Runtime package under:
 
 Set `ORT_PACKAGE_DIR`, `ORT_INCLUDE_DIR`, or `ORT_LIB_DIR` if your local ONNX
 Runtime installation uses a different path. `XMETAI_ONNX_PLUGINS_VERSION` can
-be used to override the package version during builds.
+be used to override the package version during builds. The ONNX Runtime version
+is read from `ORT_PACKAGE_DIR/VERSION_NUMBER` or the package directory name; set
+`ORT_VERSION` explicitly when neither contains it.
 
 ## Build
 
@@ -49,6 +51,13 @@ From this directory:
 
 ```bash
 python setup.py build_ext --inplace
+```
+
+The shared library name records the ONNX Runtime and CUDA toolkit versions and
+does not contain a Python ABI tag, for example:
+
+```text
+xmetai_onnx_plugins.ort1_27.cuda13.so
 ```
 
 For packaging or installation:

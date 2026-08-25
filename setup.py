@@ -8,6 +8,7 @@ Licensed under the Apache License, Version 2.0.
 
 import warnings
 import os
+import re
 from pathlib import Path
 from packaging.version import parse, Version
 
@@ -35,6 +36,25 @@ if not os.path.exists(ORT_INCLUDE_DIR):
     raise RuntimeError(f"Cannot locate ONNX Runtime headers under {ORT_INCLUDE_DIR}")
 if not os.path.exists(ORT_LIB_DIR):
     raise RuntimeError(f"Cannot locate ONNX Runtime libraries under {ORT_LIB_DIR}")
+
+
+def get_ort_version():
+    configured_version = os.environ.get("ORT_VERSION")
+    if configured_version:
+        return str(Version(configured_version))
+
+    version_file = Path(ORT_PACKAGE_DIR) / "VERSION_NUMBER"
+    if version_file.is_file():
+        return str(Version(version_file.read_text(encoding="utf-8").strip()))
+
+    match = re.search(r"(?<!\d)(\d+\.\d+\.\d+(?:[a-z0-9.-]*)?)$", Path(ORT_PACKAGE_DIR).name, re.IGNORECASE)
+    if match:
+        return str(Version(match.group(1)))
+
+    raise RuntimeError(
+        f"Cannot determine the ONNX Runtime version from {ORT_PACKAGE_DIR}. "
+        "Set ORT_VERSION explicitly."
+    )
 
 
 def get_cuda_bare_metal_version(cuda_dir):
@@ -92,6 +112,10 @@ else:
     _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
     if bare_metal_version < Version("11.6"):
         raise RuntimeError(f"{PACKAGE_NAME} is only supported on CUDA 11.6 and above.  " "Note: make sure nvcc has a supported version by running nvcc -V.")
+
+ORT_VERSION = get_ort_version()
+ort_version = Version(ORT_VERSION)
+PLUGIN_FILENAME = f"{EXTENSION_NAME}.ort{ort_version.major}_{ort_version.minor}.cuda{bare_metal_version.major}.so"
 
 cuda_arches = ["80", "86", "89", "90"]
 if bare_metal_version < Version("13.0"):
@@ -165,6 +189,11 @@ ext_modules.append(ext)
 
 
 class CudaBuildExtension(build_ext):
+    def get_ext_filename(self, ext_name):
+        if ext_name == EXTENSION_NAME:
+            return PLUGIN_FILENAME
+        return super().get_ext_filename(ext_name)
+
     def build_extension(self, ext):
         # Separate CUDA and C/C++ sources
         sources = list(ext.sources)
