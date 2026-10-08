@@ -18,6 +18,38 @@ The package currently builds the native extension module
   packed variable-length `cu_seqlens`.
 - `SoftmaxCPU`: CPU-side softmax custom operator support.
 
+### GDN-2 execution
+
+For key dimensions up to 256, each CUDA warp processes an independent value
+column and holds its recurrent state in fixed-size register arrays. This path
+does not allocate a global state workspace or use block-wide barriers. Larger
+key dimensions retain the generic implementation, with per-invocation state
+scratch allocated through ONNX Runtime's CUDA allocator and returned to it by
+RAII. No mutable state buffer is cached on the kernel object; concurrent calls
+and dynamic batch sizes get independent allocations. Both paths use
+FP32 and preserve the existing operator schema, optional initial state, scale,
+and Q/K normalization attributes; existing ONNX graphs need no re-export.
+
+This is a fused recurrent implementation, not the FLA chunk algorithm: tokens
+remain sequential within each warp. Warp reductions change floating-point
+summation order. GPU numerical validation and performance measurements are
+required before deploying a rebuilt plugin; no speedup is guaranteed by the
+source change alone. The generic path uses ORT's stream-aware scratch API
+(available since ORT 1.18); it no longer allocates state with raw
+`cudaMalloc/cudaFree`. Reuse follows the CUDA provider's allocator configuration;
+no additional option is needed in `onnx_infer.py`.
+
+The focused correctness checks can be run explicitly after building the plugin:
+
+```bash
+XMETAI_TEST_PLUGIN=/absolute/path/to/xmetai_onnx_plugins.so python -m unittest discover -s tests
+```
+
+These checks require NumPy, ONNX, ONNX Runtime GPU and a CUDA device. They cover
+key-dimension dispatch boundaries, partial warps, initial states, normalization,
+multiple batches and overlapping calls on the same session. They do not run a
+weather model or measure inference performance.
+
 ## Naming
 
 The recommended sub-library name is `xmetai-onnx-plugins`.

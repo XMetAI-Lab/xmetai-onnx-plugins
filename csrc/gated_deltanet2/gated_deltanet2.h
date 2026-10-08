@@ -5,6 +5,10 @@
 
 #include <cuda_runtime_api.h>
 
+// Bound the per-thread register arrays. Larger key dimensions retain the
+// generic implementation and its global state buffer.
+constexpr int kGatedDeltaNet2RegisterKeyLimit = 256;
+
 struct GatedDeltaNet2Params {
 	int batch;
 	int seqlen;
