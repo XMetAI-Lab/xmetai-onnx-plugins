@@ -1,6 +1,7 @@
 // Copyright (c) XMetAI.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -82,15 +83,17 @@ public:
 		const int nheads = ToIntDim(q.shape[2], "nheads");
 		const int headdim_k = ToIntDim(q.shape[3], "headdim_k");
 		const int headdim_v = ToIntDim(v.shape[3], "headdim_v");
-		const size_t state_elements = headdim_k <= kGatedDeltaNet2RegisterKeyLimit
-			? 0 : static_cast<size_t>(batch) * nheads * headdim_k * headdim_v;
+		const size_t state_elements = static_cast<size_t>(batch) * nheads * headdim_k * headdim_v;
+		const size_t prepared_elements = headdim_k <= kGatedDeltaNet2RegisterKeyLimit
+			? static_cast<size_t>(batch) * std::min(seqlen, kGatedDeltaNet2PrepareTokens) * nheads * headdim_k : 0;
 		// Each invocation owns its scratch allocation. Use the input's device
 		// memory info and ORT's stream-aware scratch API, not raw cudaMalloc or
 		// a shared kernel-member cache. Return storage before releasing allocator.
 		Ort::Allocator allocator(nullptr);
 		auto free_scratch = [&allocator](void *ptr) { if (ptr != nullptr) allocator.Free(ptr); };
 		std::unique_ptr<void, decltype(free_scratch)> state_buffer(nullptr, free_scratch);
-		if (state_elements > 0) {
+		std::unique_ptr<void, decltype(free_scratch)> prepared_buffer(nullptr, free_scratch);
+		if (state_elements > 0 || prepared_elements > 0) {
 			const OrtValue *input = nullptr;
 			const OrtMemoryInfo *memory_info = nullptr;
 			ThrowIfFailed(api_->KernelContext_GetInput(context, 0, &input));
@@ -101,6 +104,10 @@ public:
 			void *scratch = nullptr;
 			ThrowIfFailed(api_->KernelContext_GetScratchBuffer(context, memory_info, state_elements * sizeof(float), &scratch));
 			state_buffer.reset(scratch);
+			if (prepared_elements > 0) {
+				ThrowIfFailed(api_->KernelContext_GetScratchBuffer(context, memory_info, 4 * prepared_elements * sizeof(float), &scratch));
+				prepared_buffer.reset(scratch);
+			}
 		}
 
 		GatedDeltaNet2Params params{};
@@ -121,6 +128,12 @@ public:
 		params.initial_state_ptr = params.has_initial_state ? initial_state.data : nullptr;
 		params.state_ptr = static_cast<float *>(state_buffer.get());
 		params.out_ptr = out_ptr;
+		if (prepared_elements > 0) {
+			params.prepared_q_ptr = static_cast<float *>(prepared_buffer.get());
+			params.prepared_k_ptr = params.prepared_q_ptr + prepared_elements;
+			params.prepared_decay_ptr = params.prepared_k_ptr + prepared_elements;
+			params.prepared_beta_k_ptr = params.prepared_decay_ptr + prepared_elements;
+		}
 
 		void *ort_stream = nullptr;
 		ThrowIfFailed(api_->KernelContext_GetGPUComputeStream(context, &ort_stream));

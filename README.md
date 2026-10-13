@@ -21,8 +21,12 @@ The package currently builds the native extension module
 ### GDN-2 execution
 
 For key dimensions up to 256, each CUDA warp processes an independent value
-column and holds its recurrent state in fixed-size register arrays. This path
-does not allocate a global state workspace or use block-wide barriers. Larger
+column and holds its recurrent state in fixed-size register arrays. A parallel
+preparation kernel computes FP32 normalized Q/K, decay and beta-times-K once
+per token/head, shared by every value column. Preparation is bounded to 1024
+tokens, with FP32 state saved between chunks; scratch size does not grow with
+longer sequences. Both preparation and recurrence use ORT's compute stream,
+without block-wide barriers or an added host synchronization. Larger
 key dimensions retain the generic implementation, with per-invocation state
 scratch allocated through ONNX Runtime's CUDA allocator and returned to it by
 RAII. No mutable state buffer is cached on the kernel object; concurrent calls

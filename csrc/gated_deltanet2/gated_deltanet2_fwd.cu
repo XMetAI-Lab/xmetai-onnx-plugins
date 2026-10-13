@@ -33,9 +33,51 @@ __device__ __forceinline__ float warp_sum(float value) {
 	return __shfl_sync(0xffffffffu, value, 0);
 }
 
+// One warp per token/head computes quantities independent of the value column.
+// Keep the same warp reduction, FP32 products and scale order as the recurrent
+// kernel: moving these calculations must not change its numerical contract.
+template <int KeyTiles>
+__global__ void gated_deltanet2_prepare_kernel(GatedDeltaNet2Params params, size_t rows) {
+	const size_t row = static_cast<size_t>(blockIdx.x) * 4 + threadIdx.x / 32;
+	if (row >= rows) return;
+	const int lane = threadIdx.x % 32;
+	const int h = row % params.nheads;
+	const int t = (row / params.nheads) % params.token_count + params.token_offset;
+	const int b = row / (static_cast<size_t>(params.nheads) * params.token_count);
+	float q[KeyTiles], k[KeyTiles];
+	float q_norm = 0.0f, k_norm = 0.0f;
+#pragma unroll
+	for (int j = 0; j < KeyTiles; ++j) {
+		const int kd = lane + j * 32;
+		const size_t idx = qk_index(params, b, t, h, kd);
+		q[j] = kd < params.headdim_k ? params.q_ptr[idx] : 0.0f;
+		k[j] = kd < params.headdim_k ? params.k_ptr[idx] : 0.0f;
+		q_norm += q[j] * q[j];
+		k_norm += k[j] * k[j];
+	}
+	float q_mul = params.scale, k_mul = 1.0f;
+	if (params.use_qk_l2norm_in_kernel) {
+		q_mul *= rsqrtf(warp_sum(q_norm) + kL2NormEps);
+		k_mul = rsqrtf(warp_sum(k_norm) + kL2NormEps);
+	}
+#pragma unroll
+	for (int j = 0; j < KeyTiles; ++j) {
+		const int kd = lane + j * 32;
+		if (kd < params.headdim_k) {
+			const size_t idx = qk_index(params, b, t, h, kd);
+			const size_t prepared_idx = row * params.headdim_k + kd;
+			const float normalized_k = k[j] * k_mul;
+			params.prepared_q_ptr[prepared_idx] = q[j] * q_mul;
+			params.prepared_k_ptr[prepared_idx] = normalized_k;
+			params.prepared_decay_ptr[prepared_idx] = expf(params.g_ptr[idx]);
+			params.prepared_beta_k_ptr[prepared_idx] = params.b_ptr[idx] * normalized_k;
+		}
+	}
+}
+
 // Each warp owns one independent value column of the K x V state; lanes
-// partition K. Token dependencies stay within that warp. No state is shared
-// between warps or spilled to an explicit global workspace. All 32 lanes
+// partition K. Token dependencies stay within that warp, with FP32 state saved
+// only at preparation chunk boundaries. All 32 lanes
 // participate in reductions, including zero-padded lanes for nonmultiple K.
 template <int KeyTiles>
 __global__ void gated_deltanet2_register_kernel(GatedDeltaNet2Params params) {
@@ -53,38 +95,28 @@ __global__ void gated_deltanet2_register_kernel(GatedDeltaNet2Params params) {
 #pragma unroll
 	for (int j = 0; j < KeyTiles; ++j) {
 		const int kd = lane + j * 32;
-		state[j] = params.has_initial_state && kd < params.headdim_k
-			? params.initial_state_ptr[state_index(params, b, h, kd, vd)] : 0.0f;
+		state[j] = 0.0f;
+		if (kd < params.headdim_k) {
+			const size_t idx = state_index(params, b, h, kd, vd);
+			if (params.token_offset > 0) state[j] = params.state_ptr[idx];
+			else if (params.has_initial_state) state[j] = params.initial_state_ptr[idx];
+		}
 	}
-	for (int t = 0; t < params.seqlen; ++t) {
+	for (int t = 0; t < params.token_count; ++t) {
 		float q[KeyTiles], k[KeyTiles];
-		float q_norm = 0.0f, k_norm = 0.0f;
-#pragma unroll
-		for (int j = 0; j < KeyTiles; ++j) {
-			const int kd = lane + j * 32;
-			q[j] = kd < params.headdim_k ? params.q_ptr[qk_index(params, b, t, h, kd)] : 0.0f;
-			k[j] = kd < params.headdim_k ? params.k_ptr[qk_index(params, b, t, h, kd)] : 0.0f;
-			q_norm += q[j] * q[j];
-			k_norm += k[j] * k[j];
-		}
-		float q_mul = params.scale, k_mul = 1.0f;
-		if (params.use_qk_l2norm_in_kernel) {
-			q_mul *= rsqrtf(warp_sum(q_norm) + kL2NormEps);
-			k_mul = rsqrtf(warp_sum(k_norm) + kL2NormEps);
-		}
 		float erase = 0.0f;
 #pragma unroll
 		for (int j = 0; j < KeyTiles; ++j) {
 			const int kd = lane + j * 32;
-			q[j] *= q_mul;
-			k[j] *= k_mul;
 			if (kd < params.headdim_k) {
-				const size_t idx = qk_index(params, b, t, h, kd);
-				state[j] *= expf(params.g_ptr[idx]);
-				erase += (params.b_ptr[idx] * k[j]) * state[j];
+				const size_t idx = ((static_cast<size_t>(b) * params.token_count + t) * params.nheads + h) * params.headdim_k + kd;
+				q[j] = params.prepared_q_ptr[idx];
+				k[j] = params.prepared_k_ptr[idx];
+				state[j] *= params.prepared_decay_ptr[idx];
+				erase += params.prepared_beta_k_ptr[idx] * state[j];
 			}
 		}
-		const size_t v_idx = vv_index(params, b, t, h, vd);
+		const size_t v_idx = vv_index(params, b, t + params.token_offset, h, vd);
 		float write = lane == 0 ? params.w_ptr[v_idx] * params.v_ptr[v_idx] : 0.0f;
 		write = __shfl_sync(0xffffffffu, write, 0) - warp_sum(erase);
 		float output = 0.0f;
@@ -97,6 +129,13 @@ __global__ void gated_deltanet2_register_kernel(GatedDeltaNet2Params params) {
 		}
 		output = warp_sum(output);
 		if (lane == 0) params.out_ptr[v_idx] = output;
+	}
+	if (params.token_offset + params.token_count < params.seqlen) {
+#pragma unroll
+		for (int j = 0; j < KeyTiles; ++j) {
+			const int kd = lane + j * 32;
+			if (kd < params.headdim_k) params.state_ptr[state_index(params, b, h, kd, vd)] = state[j];
+		}
 	}
 }
 
@@ -206,18 +245,39 @@ void gated_deltanet2_fwd_cuda(GatedDeltaNet2Params &params, cudaStream_t stream)
 			throw std::runtime_error("GatedDeltaNet2Fn launch exceeds the CUDA grid limit");
 		}
 		const dim3 grid(static_cast<unsigned int>(blocks));
+		const size_t rows = static_cast<size_t>(params.batch) *
+			(params.seqlen < kGatedDeltaNet2PrepareTokens ? params.seqlen : kGatedDeltaNet2PrepareTokens) * params.nheads;
+		const size_t prepare_blocks = (rows - 1) / 4 + 1;
+		if (prepare_blocks > 2147483647u) {
+			throw std::runtime_error("GatedDeltaNet2Fn preparation exceeds the CUDA grid limit");
+		}
 		// Exact tile counts keep register use small for the common K=32/64/96.
 #define LAUNCH_REGISTER_KERNEL(N) \
-		case N: gated_deltanet2_register_kernel<N><<<grid, 128, 0, stream>>>(params); break
-		switch ((params.headdim_k - 1) / 32 + 1) {
-			LAUNCH_REGISTER_KERNEL(1);
-			LAUNCH_REGISTER_KERNEL(2);
-			LAUNCH_REGISTER_KERNEL(3);
-			LAUNCH_REGISTER_KERNEL(4);
-			LAUNCH_REGISTER_KERNEL(5);
-			LAUNCH_REGISTER_KERNEL(6);
-			LAUNCH_REGISTER_KERNEL(7);
-			LAUNCH_REGISTER_KERNEL(8);
+		case N: \
+			gated_deltanet2_prepare_kernel<N><<<prepare_grid, 128, 0, stream>>>(params, chunk_rows); \
+			XM_CUDA_KERNEL_CHECK(); \
+			gated_deltanet2_register_kernel<N><<<grid, 128, 0, stream>>>(params); \
+			break
+		// Bound preprocessing scratch independently of sequence length. State
+		// crosses chunk boundaries in FP32; reductions and recurrence stay intact.
+		for (int offset = 0; offset < params.seqlen;) {
+			params.token_offset = offset;
+			params.token_count = params.seqlen - offset < kGatedDeltaNet2PrepareTokens
+				? params.seqlen - offset : kGatedDeltaNet2PrepareTokens;
+			const size_t chunk_rows = static_cast<size_t>(params.batch) * params.token_count * params.nheads;
+			const dim3 prepare_grid(static_cast<unsigned int>((chunk_rows - 1) / 4 + 1));
+			switch ((params.headdim_k - 1) / 32 + 1) {
+				LAUNCH_REGISTER_KERNEL(1);
+				LAUNCH_REGISTER_KERNEL(2);
+				LAUNCH_REGISTER_KERNEL(3);
+				LAUNCH_REGISTER_KERNEL(4);
+				LAUNCH_REGISTER_KERNEL(5);
+				LAUNCH_REGISTER_KERNEL(6);
+				LAUNCH_REGISTER_KERNEL(7);
+				LAUNCH_REGISTER_KERNEL(8);
+			}
+			XM_CUDA_KERNEL_CHECK();
+			offset += params.token_count;
 		}
 #undef LAUNCH_REGISTER_KERNEL
 		XM_CUDA_KERNEL_CHECK();
